@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <time.h>
 
 // Pin definitions
 const int lock = 21;
@@ -155,9 +156,7 @@ void ReadRFID(String &uidString) {
 
 // Function to control the solenoid (lock)
 void ControlSolenoid(String uidString) {
-  bool authorized = (uidString == "551E9552" || uidString == "1637C942" || uidString == "8518D952");
-  
-  if (authorized) {
+  if (checkAuthorization(uidString)) {
     Serial.println("Authorized card detected");
     if (isFirstTap) {
       digitalWrite(lock, LOW);  // Unlock the solenoid
@@ -177,6 +176,74 @@ void ControlSolenoid(String uidString) {
   }
 }
 
+bool checkAuthorization(String uid) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wi-Fi disconnected, cannot check authorization.");
+    return false;
+  }
+
+  HTTPClient https;
+  String query = API_URL + "/v1/" + TableName + "?uid=eq." + uid;
+  https.begin(query);
+  https.addHeader("apikey", API_KEY);
+  
+  int httpResponseCode = https.GET();
+
+  if (httpResponseCode > 0) {
+    Serial.println("Received response from server");
+    String payload = https.getString();
+    https.end();
+
+    if (payload.length() > 2) { // UID is authorized
+      String currentTime = getFormattedTime();
+      String solenoidStatus = isFirstTap ? "Terbuka" : "Terkunci";
+      Serial.println("Authorization successful. Logging time and status to database.");
+      
+      // Log time and status to database
+      logSolenoidStatus(uid, currentTime, solenoidStatus);
+
+      return true;
+    }
+  } else {
+    Serial.print("Error on HTTP request: ");
+    Serial.println(httpResponseCode);
+    https.end();
+  }
+
+  return false;
+}
+
+void logSolenoidStatus(String uid, String time, String status) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wi-Fi disconnected, cannot log status.");
+    return;
+  }
+
+  HTTPClient https;
+  String logEndpoint = API_URL + "/v1/logTable"; // Replace "logTable" with your log table name
+  https.begin(logEndpoint);
+  https.addHeader("Content-Type", "application/json");
+  https.addHeader("apikey", API_KEY);
+
+  // Create JSON payload
+  String payload = "{";
+  payload += "\"uid\":\"" + uid + "\",";
+  payload += "\"time\":\"" + time + "\",";
+  payload += "\"status\":\"" + status + "\"";
+  payload += "}";
+
+  int httpResponseCode = https.POST(payload);
+
+  if (httpResponseCode > 0) {
+    Serial.println("Log successfully saved to database.");
+  } else {
+    Serial.print("Failed to log status. HTTP Response code: ");
+    Serial.println(httpResponseCode);
+  }
+
+  https.end();
+}
+
 void RefreshSistem() {
   if (digitalRead(button) == LOW) {
     refresh = true;
@@ -189,3 +256,20 @@ void RefreshSistem() {
     refresh = false;
   }
 }
+
+String getFormattedDate() {
+  time_t now = time(nullptr);
+  struct tm* timeinfo = localtime(&now);
+  char dateStr[11];
+  strftime(dateStr, sizeof(dateStr), "%Y-%m-%d", timeinfo);
+  return String(dateStr);
+}
+
+String getFormattedTime() {
+  time_t now = time(nullptr);
+  struct tm* timeinfo = localtime(&now);
+  char timeStr[20];
+  strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", timeinfo);
+  return String(timeStr);
+}
+
