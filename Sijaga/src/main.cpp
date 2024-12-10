@@ -19,6 +19,12 @@ const int pinBuzz = 32;
 #define RST_PIN 4
 #define SS_PIN 2
 
+//Define database
+String API_URL = ""; //api url
+String API_KEY = ""; //apikey
+String TableName = ""; //table name
+const int httpsPort = 443;
+
 // Wi-Fi configuration
 #define WIFI_SSID "CPSRG"
 #define WIFI_PASSWORD "CPSJAYA123"
