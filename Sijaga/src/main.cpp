@@ -70,6 +70,9 @@ void setup() {
 
   // Connect to Wi-Fi
   connectWiFi();
+
+  //melakukan config waktu
+  configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 }
 
 void loop() {
@@ -131,30 +134,38 @@ void SensorGetar() {
   }
 }
 
-void ReadRFID() {
+void ReadRFID(String &uidString) {
+  uidString = "";  // Clear previous UID string
+  
+  // Check for new card
   if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
-    return;
+    return;  // No card detected, exit the function
   }
 
+  // Read UID of card
   Serial.print("UID: ");
-  uidString = "";
   for (byte i = 0; i < mfrc522.uid.size; i++) {
     uidString += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
     uidString += String(mfrc522.uid.uidByte[i], HEX);
   }
   uidString.toUpperCase();
+  
+  Serial.println(uidString);  // Print the UID
+}
 
+// Function to control the solenoid (lock)
+void ControlSolenoid(String uidString) {
   bool authorized = (uidString == "551E9552" || uidString == "1637C942" || uidString == "8518D952");
-
+  
   if (authorized) {
     Serial.println("Authorized card detected");
     if (isFirstTap) {
-      digitalWrite(lock, LOW);
+      digitalWrite(lock, LOW);  // Unlock the solenoid
       digitalWrite(pinBuzz, LOW);
       tap = "BUKA";
       isFirstTap = false;
     } else {
-      digitalWrite(lock, HIGH);
+      digitalWrite(lock, HIGH); // Lock the solenoid
       tap = "KUNCI";
       isFirstTap = true;
     }
