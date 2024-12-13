@@ -32,7 +32,7 @@ const int httpsPort = 443;
 
 // RFID setup
 MFRC522 mfrc522(SS_PIN, RST_PIN);
-String uidString = "";
+String uid = "";
 String status = "";
 bool isFirstTap = true;
 bool refresh = false;
@@ -46,6 +46,10 @@ void ukurjarak();
 void SensorGetar();
 void ReadRFID();
 void RefreshSistem();
+void ControlSolenoid(String uid);
+bool checkAuthorization(String uid);
+void logSolenoidStatus(String uid, String time, String status);
+String getFormattedTime();
 
 void setup() {
   // Initialize serial communication
@@ -135,28 +139,28 @@ void SensorGetar() {
   }
 }
 
-void ReadRFID(String &uidString) {
-  uidString = "";  // Clear previous UID string
-  
-  // Check for new card
-  if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
-    return;  // No card detected, exit the function
-  }
+void ReadRFID() {
+    uid = "";  // Clear previous UID string
 
-  // Read UID of card
-  Serial.print("UID: ");
-  for (byte i = 0; i < mfrc522.uid.size; i++) {
-    uidString += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
-    uidString += String(mfrc522.uid.uidByte[i], HEX);
-  }
-  uidString.toUpperCase();
-  
-  Serial.println(uidString);  // Print the UID
+    // Check for new card
+    if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
+        return;  // No card detected, exit the function
+    }
+
+    // Read UID of card
+    Serial.print("UID: ");
+    for (byte i = 0; i < mfrc522.uid.size; i++) {
+        uid += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
+        uid += String(mfrc522.uid.uidByte[i], HEX);
+    }
+    uid.toUpperCase();
+    Serial.println(uid);  // Print the UID
 }
 
+
 // Function to control the solenoid (lock)
-void ControlSolenoid(String uidString) {
-  if (checkAuthorization(uidString)) {
+void ControlSolenoid(String uid) {
+  if (checkAuthorization(uid)) {
     Serial.println("Authorized card detected");
     if (isFirstTap) {
       digitalWrite(lock, LOW);  // Unlock the solenoid
