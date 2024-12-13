@@ -25,9 +25,9 @@ unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
 int buzzerLevel = 0;
 
 //Define database
-String API_URL = ""; //api url
-String API_KEY = ""; //apikey
-String TableName = ""; //table name
+String API_URL = "https://umcccazrujiewjrlxjvv.supabase.co"; //link dari api (url)
+String API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtY2NjYXpydWppZXdqcmx4anZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM0OTk2MDYsImV4cCI6MjA0OTA3NTYwNn0.Oau8UXNtyd6CKUKuXo08LgK8M4QxEiHVhJ14WfjXskc"; //apikey
+String TableName = "card_id_dumps"; //table name
 const int httpsPort = 443;
 
 // Wi-Fi configuration
@@ -53,6 +53,7 @@ void ukurjarak();
 void SensorGetar();
 void ReadRFID();
 void RefreshSistem();
+void sendUidToDatabase(String uid);
 void ControlSolenoid(String uid);
 bool checkAuthorization(String uid);
 void logSolenoidStatus(String uid, String time, String status);
@@ -77,12 +78,13 @@ void setup() {
   digitalWrite(LED_R, LOW);
   digitalWrite(LED_G, HIGH);
 
+  // Connect to Wi-Fi
+  connectWiFi();
+
   // Initialize SPI and RFID
   SPI.begin();
   mfrc522.PCD_Init();
-
-  // Connect to Wi-Fi
-  connectWiFi();
+  Serial.println("Scan Kartu Rfid anda : ");
 
   //melakukan config waktu
   configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
@@ -185,11 +187,11 @@ void SensorGetar() {
 }
 
 void ReadRFID() {
-    uid = "";  // Clear previous UID string
+     uid = ""; // Clear previous UID string
 
     // Check for new card
     if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
-        return;  // No card detected, exit the function
+        return; // No card detected, exit the function
     }
 
     // Read UID of card
@@ -199,7 +201,10 @@ void ReadRFID() {
         uid += String(mfrc522.uid.uidByte[i], HEX);
     }
     uid.toUpperCase();
-    Serial.println(uid);  // Print the UID
+    Serial.println(uid); // Print the UID to serial monitor
+
+    // Send UID to database
+    sendUidToDatabase(uid);
 }
 
 
@@ -304,6 +309,35 @@ void RefreshSistem() {
     ESP.restart();
     refresh = false;
   }
+}
+
+void sendUidToDatabase(String uid) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Wi-Fi disconnected, cannot send UID to database.");
+        return;
+    }
+
+    HTTPClient https;
+    String endpoint = API_URL + "/v1/" + TableName;
+    https.begin(endpoint);
+    https.addHeader("Content-Type", "application/json");
+    https.addHeader("apikey", API_KEY);
+
+    // Create JSON payload
+    String payload = "{";
+    payload += "\"uid\":\"" + uid + "\"";
+    payload += "}";
+
+    int httpResponseCode = https.POST(payload);
+
+    if (httpResponseCode > 0) {
+        Serial.println("UID successfully sent to database.");
+    } else {
+        Serial.print("Failed to send UID. HTTP Response code: ");
+        Serial.println(httpResponseCode);
+    }
+
+    https.end();
 }
 
 String getFormattedDate() {
