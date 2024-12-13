@@ -20,6 +20,10 @@ const int pinBuzz = 32;
 #define RST_PIN 4
 #define SS_PIN 2
 
+// Deklarasi variabel sensor getar
+unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
+int buzzerLevel = 0;
+
 //Define database
 String API_URL = ""; //api url
 String API_KEY = ""; //apikey
@@ -38,6 +42,9 @@ bool isFirstTap = true;
 bool refresh = false;
 String tap = "KUNCI";
 
+// Deklarasi Interrupt untuk sensor getar
+volatile bool getaranTerdeteksi = false;
+
 WiFiClientSecure client;
 
 // Function declarations
@@ -50,6 +57,7 @@ void ControlSolenoid(String uid);
 bool checkAuthorization(String uid);
 void logSolenoidStatus(String uid, String time, String status);
 String getFormattedTime();
+void IRAM_ATTR handleGetar();
 
 void setup() {
   // Initialize serial communication
@@ -78,6 +86,9 @@ void setup() {
 
   //melakukan config waktu
   configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+
+// Interrupt pada sinyal naik
+  attachInterrupt(digitalPinToInterrupt(pinGetar), handleGetar, RISING); 
 }
 
 void loop() {
@@ -123,20 +134,54 @@ void ukurjarak() {
     digitalWrite(LED_G, HIGH);
     status = "TIDAK ADA BARANG";
   }
+
+  delay(1000);
 }
 
 void SensorGetar() {
-  long NilaiGetar = pulseIn(pinGetar, HIGH);
-  Serial.print("Nilai Getaran: ");
-  Serial.println(NilaiGetar);
+  pulseDuration = pulseIn(pinGetar, HIGH);  // Mengukur durasi pulsa HIGH
 
-  if (NilaiGetar == 0) {
-    Serial.println("Getaran Tidak terdeteksi");
-    digitalWrite(pinBuzz, LOW);
-  } else if (NilaiGetar > 5000) {
-    Serial.println("Alat Bergetar");
-    digitalWrite(pinBuzz, HIGH);
+  // Menentukan tingkat keparahan getaran berdasarkan durasi pulsa
+  // Fuzzy membership function untuk keanggotaan rendah, sedang, dan tinggi
+
+  // Keanggotaan untuk "Rendah" (0 - 500 mikrodetik)
+  float membershipRendah = constrain(map(pulseDuration,0,500,1,0),0,1);  // Jika durasi pulsa <= 500us, tingkat rendah
+
+  // Keanggotaan untuk "Sedang" (500 - 1000 mikrodetik)
+  float membershipSedang = constrain(map(pulseDuration,900, 1000, 0, 1), 0, 1);  // Jika durasi pulsa antara 500 - 1000us
+
+  // Keanggotaan untuk "Tinggi" (1000 - 3000 mikrodetik)
+  float membershipTinggi = constrain(map(pulseDuration, 1000, 3000, 0, 1), 0, 1);  // Jika durasi pulsa >= 1000us, tingkat tinggi
+
+  // Debugging untuk melihat hasil keanggotaan
+  Serial.print("Pulse Duration: ");
+  Serial.print(pulseDuration);
+  Serial.print(" | Rendah: ");
+  Serial.print(membershipRendah);
+  Serial.print(" | Sedang: ");
+  Serial.print(membershipSedang);
+  Serial.print(" | Tinggi: ");
+  Serial.println(membershipTinggi);
+
+  // Logika untuk mengendalikan buzzer berdasarkan membership fuzzy
+  if (membershipTinggi > 0.5) {
+    buzzerLevel = 1;  // Jika keanggotaan tinggi > 0.5, nyalakan buzzer
+  } else if (membershipSedang > 0.5) {
+    buzzerLevel = 1;  // Jika keanggotaan sedang > 0.5, nyalakan buzzer
+  } else {
+    buzzerLevel = 0;  // Jika keanggotaan rendah, matikan buzzer
   }
+
+  // Mengontrol buzzer berdasarkan level
+  if (buzzerLevel == 1) {
+    Serial.println("Alat Bergetar (Buzzer Aktif)");
+    digitalWrite(pinBuzz, HIGH);  // Aktifkan buzzer
+    delay(500);                   // Durasi bunyi buzzer
+    digitalWrite(pinBuzz, LOW);   // Matikan buzzer
+  } else {
+    digitalWrite(pinBuzz, LOW);   // Matikan buzzer jika tidak ada getaran tinggi
+  }
+
 }
 
 void ReadRFID() {
@@ -277,3 +322,6 @@ String getFormattedTime() {
   return String(timeStr);
 }
 
+void IRAM_ATTR handleGetar() {
+    getaranTerdeteksi = true; // Set flag saat ada getaran
+}
