@@ -245,25 +245,25 @@ void ReadRFID() {
 
 // Function to control the solenoid (lock)
 void ControlSolenoid(String uid) {
-  if (checkAuthorization(uid)) {
-    Serial.println("Authorized card detected");
-    if (isFirstTap) {
-      digitalWrite(lock, LOW);  // Unlock the solenoid
-      digitalWrite(pinBuzz, LOW);
-      tap = "BUKA";
-      isFirstTap = false;
+    if (checkAuthorization(uid)) {
+        if (isFirstTap) {
+            Serial.println("Unlocking...");
+            digitalWrite(lock, LOW);
+            tap = "BUKA";
+        } else {
+            Serial.println("Locking...");
+            digitalWrite(lock, HIGH);
+            tap = "KUNCI";
+        }
+        isFirstTap = !isFirstTap;
     } else {
-      digitalWrite(lock, HIGH); // Lock the solenoid
-      tap = "KUNCI";
-      isFirstTap = true;
+        Serial.println("Access Denied: Unauthorized UID");
+        digitalWrite(buzzer, HIGH);
+        delay(1000);
+        digitalWrite(buzzer, LOW);
     }
-  } else {
-    Serial.println("Access denied");
-    digitalWrite(buzzer, HIGH);
-    delay(1000);
-    digitalWrite(buzzer, LOW);
-  }
 }
+
 
 bool checkAuthorization(String uid) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -272,8 +272,8 @@ bool checkAuthorization(String uid) {
     }
 
     HTTPClient http;
-    String query = API_URL + GetUIDsupabase + "?uid=eq." + uid + "&select=*"; // Query untuk UID spesifik
-    http.begin(query); // Tidak menggunakan API key
+    String query = API_URL + GetUIDsupabase + "?uid=eq." + uid + "&select=*";
+    http.begin(query);
 
     int httpResponseCode = http.GET();
 
@@ -282,8 +282,10 @@ bool checkAuthorization(String uid) {
         Serial.println("GET Response:");
         Serial.println(payload);
 
-        // Jika ada data, berarti UID terotorisasi
-        if (payload.length() > 2) {
+        // Validasi jika payload berisi UID yang sesuai
+        if (payload.indexOf(uid) > -1) {  // Cari UID dalam respons
+            Serial.println("UID Found: Authorized.");
+            http.end();
             return true;
         } else {
             Serial.println("UID Not Authorized.");
@@ -294,7 +296,7 @@ bool checkAuthorization(String uid) {
     }
 
     http.end();
-    return false;
+    return false;  // Default: Unauthorized jika tidak ada UID cocok
 }
 
 
