@@ -15,10 +15,10 @@ const int button = 33;
 const int pinGetar = 15;
 const int pinBuzz = 32;
 
-#define TRIG_PIN 18
-#define ECHO_PIN 5
+#define TRIG_PIN 26
+#define ECHO_PIN 25
 #define RST_PIN 4
-#define SS_PIN 2
+#define SS_PIN 5
 
 // Deklarasi variabel sensor getar
 unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
@@ -26,8 +26,10 @@ int buzzerLevel = 0;
 
 //Define database
 String API_URL = "https://sijaga-be.vercel.app/"; //link dari api (url)
-String API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtY2NjYXpydWppZXdqcmx4anZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM0OTk2MDYsImV4cCI6MjA0OTA3NTYwNn0.Oau8UXNtyd6CKUKuXo08LgK8M4QxEiHVhJ14WfjXskc"; //apikey
-String TableName = "card_id_dumps"; //table name
+//String API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtY2NjYXpydWppZXdqcmx4anZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM0OTk2MDYsImV4cCI6MjA0OTA3NTYwNn0.Oau8UXNtyd6CKUKuXo08LgK8M4QxEiHVhJ14WfjXskc"; //apikey
+String GetUIDsupabase = "/card-id/latest"; //Endpoint Get UID
+String PostUID = "/card-id/create"; //Endpoint Post UID
+String PostLog = "/history/box-status"; //Endpoint post LogStatus
 const int httpsPort = 443;
 
 // Wi-Fi configuration
@@ -98,6 +100,8 @@ void loop() {
   SensorGetar();
   ReadRFID();
   RefreshSistem();
+
+  delay(500);
 }
 
 // Function implementations
@@ -131,10 +135,14 @@ void ukurjarak() {
     digitalWrite(LED_R, HIGH);
     digitalWrite(LED_G, LOW);
     status = "ADA BARANG";
+    Serial.println(status);
+    Serial.println(" ");
   } else {
     digitalWrite(LED_R, LOW);
     digitalWrite(LED_G, HIGH);
     status = "TIDAK ADA BARANG";
+    Serial.println(status);
+    Serial.println(" ");
   }
 
   delay(1000);
@@ -147,13 +155,13 @@ void SensorGetar() {
   // Fuzzy membership function untuk keanggotaan rendah, sedang, dan tinggi
 
   // Keanggotaan untuk "Rendah" (0 - 500 mikrodetik)
-  float membershipRendah = constrain(map(pulseDuration,0,500,1,0),0,1);  // Jika durasi pulsa <= 500us, tingkat rendah
+  float membershipRendah = constrain(map(pulseDuration,0,900,1,0),0,1);  // Jika durasi pulsa <= 500us, tingkat rendah
 
   // Keanggotaan untuk "Sedang" (500 - 1000 mikrodetik)
-  float membershipSedang = constrain(map(pulseDuration,900, 1000, 0, 1), 0, 1);  // Jika durasi pulsa antara 500 - 1000us
+  float membershipSedang = constrain(map(pulseDuration,900, 1250, 0, 1), 0, 1);  // Jika durasi pulsa antara 500 - 1000us
 
   // Keanggotaan untuk "Tinggi" (1000 - 3000 mikrodetik)
-  float membershipTinggi = constrain(map(pulseDuration, 1000, 3000, 0, 1), 0, 1);  // Jika durasi pulsa >= 1000us, tingkat tinggi
+  float membershipTinggi = constrain(map(pulseDuration, 1250, 3000, 0, 1), 0, 1);  // Jika durasi pulsa >= 1000us, tingkat tinggi
 
   // Debugging untuk melihat hasil keanggotaan
   Serial.print("Pulse Duration: ");
@@ -177,13 +185,17 @@ void SensorGetar() {
   // Mengontrol buzzer berdasarkan level
   if (buzzerLevel == 1) {
     Serial.println("Alat Bergetar (Buzzer Aktif)");
-    digitalWrite(pinBuzz, HIGH);  // Aktifkan buzzer
-    delay(500);                   // Durasi bunyi buzzer
-    digitalWrite(pinBuzz, LOW);   // Matikan buzzer
-  } else {
-    digitalWrite(pinBuzz, LOW);   // Matikan buzzer jika tidak ada getaran tinggi
-  }
 
+    unsigned long startTime = millis(); // Catat waktu awal
+    while (millis() - startTime < 3000) { // Loop selama 3 detik
+        digitalWrite(pinBuzz, HIGH); // Nyalakan buzzer
+        delay(100);                  // Durasi suara aktif
+        digitalWrite(pinBuzz, LOW);  // Matikan buzzer
+        delay(100);                  // Durasi jeda sebelum aktif lagi
+    }
+} else {
+    digitalWrite(pinBuzz, LOW);       // Matikan buzzer jika tidak ada getaran tinggi
+}
 }
 
 void ReadRFID() {
@@ -255,76 +267,70 @@ void ControlSolenoid(String uid) {
 
 bool checkAuthorization(String uid) {
     if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Wi-Fi disconnected, cannot check authorization.");
-    return false;
-  }
-
-  HTTPClient https;
-  // Properly formatted query URL for Supabase
-  String query = API_URL + "/card-id/latest" + TableName + "?uid=eq." + uid + "&select=*";
-  https.begin(query);
-  https.addHeader("apikey", API_KEY);
-
-  int httpResponseCode = https.GET();
-
-  if (httpResponseCode > 0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-
-    String payload = https.getString();
-    Serial.println("Response payload: " + payload);
-
-    // Check if the payload contains a valid response
-    if (payload.length() > 2) { // Respons valid jika JSON array tidak kosong
-      String currentTime = getFormattedTime();
-      String solenoidStatus = isFirstTap ? "Terbuka" : "Terkunci";
-
-      // Log status ke database
-      logSolenoidStatus(uid, currentTime, solenoidStatus);
-      https.end();
-      return true;
-    } else {
-      Serial.println("UID not authorized.");
+        Serial.println("Wi-Fi disconnected, cannot check authorization.");
+        return false;
     }
-  } else {
-    Serial.print("Error on HTTP request: ");
-    Serial.println(httpResponseCode);
-  }
 
-  https.end();
-  return false;
+    HTTPClient http;
+    String query = API_URL + GetUIDsupabase + "?uid=eq." + uid + "&select=*"; // Query untuk UID spesifik
+    http.begin(query); // Tidak menggunakan API key
+
+    int httpResponseCode = http.GET();
+
+    if (httpResponseCode > 0) {
+        String payload = http.getString();
+        Serial.println("GET Response:");
+        Serial.println(payload);
+
+        // Jika ada data, berarti UID terotorisasi
+        if (payload.length() > 2) {
+            return true;
+        } else {
+            Serial.println("UID Not Authorized.");
+        }
+    } else {
+        Serial.print("Error on GET request. HTTP Response code: ");
+        Serial.println(httpResponseCode);
+    }
+
+    http.end();
+    return false;
 }
+
 
 void logSolenoidStatus(String uid, String time, String status) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Wi-Fi disconnected, cannot log status.");
-    return;
-  }
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Wi-Fi disconnected, cannot log status.");
+        return;
+    }
 
-  HTTPClient https;
-  String logEndpoint = API_URL + "/history/box-status"; // Pastikan tabel sesuai dengan konfigurasi Supabase Anda
-  https.begin(logEndpoint);
-  https.addHeader("Content-Type", "application/json");
-  https.addHeader("apikey", API_KEY);
+    HTTPClient http;
+    String logEndpoint = API_URL + PostLog; // Endpoint untuk log status
+    http.begin(logEndpoint); // Tidak menggunakan API key
+    http.addHeader("Content-Type", "application/json");
 
-  // Create JSON payload
-  String payload = "{";
-  payload += "\"uid\":\"" + uid + "\",";
-  payload += "\"time\":\"" + time + "\",";
-  payload += "\"status\":\"" + status + "\"";
-  payload += "}";
+    // JSON payload
+    String payload = "{";
+    payload += "\"uid\":\"" + uid + "\",";
+    payload += "\"time\":\"" + time + "\",";
+    payload += "\"status\":\"" + status + "\"";
+    payload += "}";
 
-  int httpResponseCode = https.POST(payload);
+    int httpResponseCode = http.POST(payload);
 
-  if (httpResponseCode > 0) {
-    Serial.println("Log successfully saved to database.");
-  } else {
-    Serial.print("Failed to log status. HTTP Response code: ");
-    Serial.println(httpResponseCode);
-  }
+    if (httpResponseCode > 0) {
+        String response = http.getString();
+        Serial.println("POST Response:");
+        Serial.println(response);
+    } else {
+        Serial.print("Error on POST request. HTTP Response code: ");
+        Serial.println(httpResponseCode);
+    }
 
-  https.end();
+    http.end();
 }
+
+
 
 void RefreshSistem() {
   if (digitalRead(button) == LOW) {
@@ -345,28 +351,31 @@ void sendUidToDatabase(String uid) {
         return;
     }
 
-    HTTPClient https;
-    String endpoint = API_URL + "/card-id/create" + TableName;
-    https.begin(endpoint);
-    https.addHeader("Content-Type", "application/json");
-    https.addHeader("apikey", API_KEY);
+    HTTPClient http;
+    String endpoint = API_URL + PostUID; // Endpoint untuk POST data
 
-    // Create JSON payload
+    http.begin(endpoint);
+    http.addHeader("Content-Type", "application/json"); // Header untuk JSON payload
+
+    // JSON payload
     String payload = "{";
     payload += "\"uid\":\"" + uid + "\"";
     payload += "}";
 
-    int httpResponseCode = https.POST(payload);
+    int httpResponseCode = http.POST(payload);
 
     if (httpResponseCode > 0) {
+        String response = http.getString();
         Serial.println("UID successfully sent to database.");
+        Serial.println(response);
     } else {
-        Serial.print("Failed to send UID. HTTP Response code: ");
+        Serial.print("Error on POST request. HTTP Response code: ");
         Serial.println(httpResponseCode);
     }
 
-    https.end();
+    http.end();
 }
+
 
 String getFormattedDate() {
   time_t now = time(nullptr);
