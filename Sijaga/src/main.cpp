@@ -25,7 +25,7 @@ unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
 int buzzerLevel = 0;
 
 //Define database
-String API_URL = "https://umcccazrujiewjrlxjvv.supabase.co"; //link dari api (url)
+String API_URL = "https://sijaga-be.vercel.app/"; //link dari api (url)
 String API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtY2NjYXpydWppZXdqcmx4anZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM0OTk2MDYsImV4cCI6MjA0OTA3NTYwNn0.Oau8UXNtyd6CKUKuXo08LgK8M4QxEiHVhJ14WfjXskc"; //apikey
 String TableName = "card_id_dumps"; //table name
 const int httpsPort = 443;
@@ -187,7 +187,7 @@ void SensorGetar() {
 }
 
 void ReadRFID() {
-     uid = ""; // Clear previous UID string
+    uid = ""; // Clear previous UID string
 
     // Check for new card
     if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
@@ -195,16 +195,39 @@ void ReadRFID() {
     }
 
     // Read UID of card
-    Serial.print("UID: ");
     for (byte i = 0; i < mfrc522.uid.size; i++) {
         uid += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
         uid += String(mfrc522.uid.uidByte[i], HEX);
     }
     uid.toUpperCase();
-    Serial.println(uid); // Print the UID to serial monitor
+    Serial.println("RFID Detected UID: " + uid); // Print the UID to serial monitor
 
-    // Send UID to database
-    sendUidToDatabase(uid);
+    // Perform authorization check by comparing with database
+    if (checkAuthorization(uid)) {
+        Serial.println("UID Match: Authorized!");
+        
+        // Log successful access to Supabase
+        String currentTime = getFormattedTime();
+        logSolenoidStatus(uid, currentTime, "Access Granted");
+        
+        // Control solenoid lock
+        ControlSolenoid(uid);
+
+        // POST UID to Supabase
+        sendUidToDatabase(uid);
+
+    } else {
+        Serial.println("UID Not Found: Access Denied.");
+        
+        // Log failed access attempt to Supabase
+        String currentTime = getFormattedTime();
+        logSolenoidStatus(uid, currentTime, "Access Denied");
+
+        // Activate buzzer for denied access
+        digitalWrite(buzzer, HIGH);
+        delay(1000);
+        digitalWrite(buzzer, LOW);
+    }
 }
 
 
@@ -231,39 +254,44 @@ void ControlSolenoid(String uid) {
 }
 
 bool checkAuthorization(String uid) {
-  if (WiFi.status() != WL_CONNECTED) {
+    if (WiFi.status() != WL_CONNECTED) {
     Serial.println("Wi-Fi disconnected, cannot check authorization.");
     return false;
   }
 
   HTTPClient https;
-  String query = API_URL + "/v1/" + TableName + "?uid=eq." + uid;
+  // Properly formatted query URL for Supabase
+  String query = API_URL + "/card-id/latest" + TableName + "?uid=eq." + uid + "&select=*";
   https.begin(query);
   https.addHeader("apikey", API_KEY);
-  
+
   int httpResponseCode = https.GET();
 
   if (httpResponseCode > 0) {
-    Serial.println("Received response from server");
-    String payload = https.getString();
-    https.end();
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
 
-    if (payload.length() > 2) { // UID is authorized
+    String payload = https.getString();
+    Serial.println("Response payload: " + payload);
+
+    // Check if the payload contains a valid response
+    if (payload.length() > 2) { // Respons valid jika JSON array tidak kosong
       String currentTime = getFormattedTime();
       String solenoidStatus = isFirstTap ? "Terbuka" : "Terkunci";
-      Serial.println("Authorization successful. Logging time and status to database.");
-      
-      // Log time and status to database
-      logSolenoidStatus(uid, currentTime, solenoidStatus);
 
+      // Log status ke database
+      logSolenoidStatus(uid, currentTime, solenoidStatus);
+      https.end();
       return true;
+    } else {
+      Serial.println("UID not authorized.");
     }
   } else {
     Serial.print("Error on HTTP request: ");
     Serial.println(httpResponseCode);
-    https.end();
   }
 
+  https.end();
   return false;
 }
 
@@ -274,7 +302,7 @@ void logSolenoidStatus(String uid, String time, String status) {
   }
 
   HTTPClient https;
-  String logEndpoint = API_URL + "/v1/logTable"; // Replace "logTable" with your log table name
+  String logEndpoint = API_URL + "/history/box-status"; // Pastikan tabel sesuai dengan konfigurasi Supabase Anda
   https.begin(logEndpoint);
   https.addHeader("Content-Type", "application/json");
   https.addHeader("apikey", API_KEY);
@@ -318,7 +346,7 @@ void sendUidToDatabase(String uid) {
     }
 
     HTTPClient https;
-    String endpoint = API_URL + "/v1/" + TableName;
+    String endpoint = API_URL + "/card-id/create" + TableName;
     https.begin(endpoint);
     https.addHeader("Content-Type", "application/json");
     https.addHeader("apikey", API_KEY);
@@ -359,3 +387,4 @@ String getFormattedTime() {
 void IRAM_ATTR handleGetar() {
     getaranTerdeteksi = true; // Set flag saat ada getaran
 }
+
