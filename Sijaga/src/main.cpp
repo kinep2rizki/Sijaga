@@ -25,7 +25,7 @@ unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
 int buzzerLevel = 0;
 
 //Define database
-String API_URL = "https://sijaga-be.vercel.app/"; //link dari api (url)
+String API_URL = "https://sijaga-be.vercel.app"; //link dari api (url)
 //String API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtY2NjYXpydWppZXdqcmx4anZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM0OTk2MDYsImV4cCI6MjA0OTA3NTYwNn0.Oau8UXNtyd6CKUKuXo08LgK8M4QxEiHVhJ14WfjXskc"; //apikey
 String GetUIDsupabase = "/card-id/latest"; //Endpoint Get UID
 String PostUID = "/card-id/create"; //Endpoint Post UID
@@ -242,7 +242,6 @@ void ReadRFID() {
     }
 }
 
-
 // Function to control the solenoid (lock)
 void ControlSolenoid(String uid) {
     if (checkAuthorization(uid)) {
@@ -263,7 +262,6 @@ void ControlSolenoid(String uid) {
         digitalWrite(buzzer, LOW);
     }
 }
-
 
 bool checkAuthorization(String uid) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -331,9 +329,7 @@ void logSolenoidStatus(String uid, String time, String status) {
 
     http.end();
 }
-
-
-
+ 
 void RefreshSistem() {
   if (digitalRead(button) == LOW) {
     refresh = true;
@@ -378,7 +374,6 @@ void sendUidToDatabase(String uid) {
     http.end();
 }
 
-
 String getFormattedDate() {
   time_t now = time(nullptr);
   struct tm* timeinfo = localtime(&now);
@@ -398,4 +393,3 @@ String getFormattedTime() {
 void IRAM_ATTR handleGetar() {
     getaranTerdeteksi = true; // Set flag saat ada getaran
 }
-
