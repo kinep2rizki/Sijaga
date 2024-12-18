@@ -27,7 +27,7 @@ int buzzerLevel = 0;
 //Define database
 String API_URL = "https://sijaga-be.vercel.app"; //link dari api (url)
 //String API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtY2NjYXpydWppZXdqcmx4anZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM0OTk2MDYsImV4cCI6MjA0OTA3NTYwNn0.Oau8UXNtyd6CKUKuXo08LgK8M4QxEiHVhJ14WfjXskc"; //apikey
-String GetUIDsupabase = "/card-id/latest"; //Endpoint Get UID
+//String GetUIDsupabase = "/card-id/latest"; //Endpoint Get UID
 String PostUID = "/card-id/create"; //Endpoint Post UID
 String PostLog = "/history/box-status"; //Endpoint post LogStatus
 const int httpsPort = 443;
@@ -270,8 +270,11 @@ bool checkAuthorization(String uid) {
     }
 
     HTTPClient http;
-    String query = API_URL + GetUIDsupabase + "?uid=eq." + uid + "&select=*";
+    String query = API_URL + "/history/users?uid=eq." + uid + "&select=*";
     http.begin(query);
+
+    // Debugging log sebelum GET request
+    Serial.println("GET Request URL: " + query);
 
     int httpResponseCode = http.GET();
 
@@ -329,7 +332,7 @@ void logSolenoidStatus(String uid, String time, String status) {
 
     http.end();
 }
- 
+
 void RefreshSistem() {
   if (digitalRead(button) == LOW) {
     refresh = true;
@@ -359,6 +362,9 @@ void sendUidToDatabase(String uid) {
     String payload = "{";
     payload += "\"uid\":\"" + uid + "\"";
     payload += "}";
+
+    // Debugging log sebelum POST request
+    Serial.println("POST Payload: " + payload);
 
     int httpResponseCode = http.POST(payload);
 
