@@ -15,7 +15,6 @@ const int button = 33;
 const int pinGetar = 15;
 const int pinBuzz = 32;
 
-
 #define RELAY_PIN 13  
 #define TRIG_PIN 26
 #define ECHO_PIN 25
@@ -26,10 +25,8 @@ const int pinBuzz = 32;
 unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
 int buzzerLevel = 0;
 
-//Define database
+//Define database & endpoint
 String API_URL = "https://sijaga-be.vercel.app"; //link dari api (url)
-//String API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtY2NjYXpydWppZXdqcmx4anZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM0OTk2MDYsImV4cCI6MjA0OTA3NTYwNn0.Oau8UXNtyd6CKUKuXo08LgK8M4QxEiHVhJ14WfjXskc"; //apikey
-//String GetUIDsupabase = "/card-id/latest"; //Endpoint Get UID
 String PostUID = "/card-id/create"; //Endpoint Post UID
 String PostLog = "/history/box-status"; //Endpoint post LogStatus
 String endpointStatusBarang = "/availability/post";
@@ -67,45 +64,48 @@ String getFormattedTime();
 void IRAM_ATTR handleGetar();
 
 void setup() {
-  // Initialize serial communication
-  Serial.begin(115200);
+    // Initialize serial communication
+    Serial.begin(115200);
 
-  // Initialize pins
-  pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, HIGH);
-  pinMode(lock, OUTPUT);
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(LED_R, OUTPUT);
-  pinMode(LED_G, OUTPUT);
-  pinMode(buzzer, OUTPUT);
-  pinMode(button, INPUT_PULLUP);
-  pinMode(pinGetar, INPUT);
-  pinMode(pinBuzz, OUTPUT);
-  digitalWrite(lock, HIGH);
-  digitalWrite(LED_R, LOW);
-  digitalWrite(LED_G, HIGH);
+    // Initialize pins
+    pinMode(RELAY_PIN, OUTPUT);
+    digitalWrite(RELAY_PIN, HIGH);
+    pinMode(lock, OUTPUT);
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+    pinMode(LED_R, OUTPUT);
+    pinMode(LED_G, OUTPUT);
+    pinMode(buzzer, OUTPUT);
+    pinMode(button, INPUT_PULLUP);
+    pinMode(pinGetar, INPUT);
+    pinMode(pinBuzz, OUTPUT);
+    digitalWrite(lock, HIGH);
+    digitalWrite(LED_R, LOW);
+    digitalWrite(LED_G, HIGH);
 
-  // Connect to Wi-Fi
-  connectWiFi();
+    // Connect to Wi-Fi
+    connectWiFi();
 
-  // Initialize SPI and RFID
-  SPI.begin();
-  mfrc522.PCD_Init();
-  if (!mfrc522.PCD_PerformSelfTest()) {
+    // Initialize SPI and RFID
+    SPI.begin();
+    mfrc522.PCD_Init();
+
+    // Adjust antenna gain
+    mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_avg);
+
+    if (!mfrc522.PCD_PerformSelfTest()) {
     Serial.println("RFID self-test failed.");
-  } 
-  else {
+    } else {
     Serial.println("RFID initialized successfully.");
-  }
+    }
 
+    // Configure time
+    configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 
-  //melakukan config waktu
-  configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-
-// Interrupt pada sinyal naik
-  attachInterrupt(digitalPinToInterrupt(pinGetar), handleGetar, RISING); 
+    // Interrupt setup
+    attachInterrupt(digitalPinToInterrupt(pinGetar), handleGetar, RISING);
 }
+
 
 void loop() {
   ukurjarak();
@@ -271,22 +271,25 @@ void ReadRFID() {
 
 void ControlSolenoid(String uid) {
     if (checkAuthorization(uid)) { // Cek apakah UID memiliki izin
-        Serial.println("UID Authorized: ");
+        Serial.println("UID Authorized: " + uid);
 
-        // Ubah status relay berdasarkan tap
+        // Ubah status solenoid berdasarkan tap
         if (isFirstTap) {
-            Serial.println("Unlocking solenoid");
-            digitalWrite(RELAY_PIN, LOW); // Relay aktif (solenoid menyala/buka)
+            Serial.println("Unlocking solenoid...");
+            digitalWrite(RELAY_PIN, LOW); // Relay aktif (solenoid buka)
             tap = "BUKA";
         } else {
-            Serial.println("Locking solenoid");
-            digitalWrite(RELAY_PIN, HIGH); // Relay nonaktif (solenoid mati/kunci)
+            Serial.println("Locking solenoid...");
+            digitalWrite(RELAY_PIN, HIGH); // Relay nonaktif (solenoid kunci)
             tap = "KUNCI";
         }
 
-        // Catat status solenoid
+        // Perbarui log status solenoid
         String currentTime = getFormattedTime();
-        logSolenoidStatus(uid, currentTime, tap); // Kirim log ke database
+        logSolenoidStatus(uid, currentTime, tap);
+
+        // Periksa status barang menggunakan ultrasonik
+        ukurjarak();
 
         isFirstTap = !isFirstTap; // Ubah status tap
     } else {
@@ -296,6 +299,7 @@ void ControlSolenoid(String uid) {
         digitalWrite(buzzer, LOW);
     }
 }
+
 
 
 
@@ -389,19 +393,13 @@ void sendUidToDatabase(String uid, String status) {
     }
 
     HTTPClient http;
-    String endpoint = API_URL + PostUID; // Endpoint untuk POST data
+    String endpoint = "https://sijaga-be.vercel.app/card-id/create"; // Pastikan URL endpoint benar
     http.begin(endpoint);
     http.addHeader("Content-Type", "application/json"); // Header untuk JSON payload
 
-    // JSON payload
-    String payload = "{";
-    payload += "\"uid\":\"" + uid + "\",";
-    payload += "\"status\":\"" + status + "\"";
-    payload += "}";
-
-    // Debugging URL dan Payload
-    Serial.println("Endpoint: " + endpoint);
-    Serial.println("Payload: " + payload);
+    // JSON payload yang benar
+    String payload = "{\"card_id\":\"" + uid + "\",\"status\":\"" + status + "\"}";
+    Serial.println("Payload: " + payload); // Debugging: Print payload untuk memastikan kebenaran format
 
     int httpResponseCode = http.POST(payload);
 
@@ -410,13 +408,11 @@ void sendUidToDatabase(String uid, String status) {
         Serial.println("POST Response:");
         Serial.println(response);
     } else {
-        Serial.print("Error on POST request. HTTP Response code: ");
+        Serial.print("Error on sending POST: ");
         Serial.println(httpResponseCode);
     }
-
     http.end();
 }
-
 
 String getFormattedDate() {
   time_t now = time(nullptr);
