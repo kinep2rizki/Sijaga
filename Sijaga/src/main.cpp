@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <time.h>
+#include <WiFiManager.h>
 
 // Pin definitions
 const int lock = 21;
@@ -15,7 +16,7 @@ const int button = 33;
 const int pinGetar = 15;
 const int pinBuzz = 32;
 
-#define RELAY_PIN 13  
+#define RELAY_PIN 21  
 #define TRIG_PIN 26
 #define ECHO_PIN 25
 #define RST_PIN 4
@@ -26,15 +27,15 @@ unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
 int buzzerLevel = 0;
 
 //Define database & endpoint
-String API_URL = "https://sijaga-be.vercel.app"; //link dari api (url)
+String API_URL = "https://sijaga-railway-production.up.railway.app"; //link dari api (url)
 String PostUID = "/card-id/create"; //Endpoint Post UID
 String PostLog = "/history/box-status"; //Endpoint post LogStatus
 String endpointStatusBarang = "/availability/post";
 const int httpsPort = 443;
 
 // Wi-Fi configuration
-#define WIFI_SSID "CPSRG"
-#define WIFI_PASSWORD "CPSJAYA123"
+#define WIFI_SSID "Celeng Balap-5G"
+#define WIFI_PASSWORD "telkomnihbos"
 
 // RFID setup
 MFRC522 mfrc522(SS_PIN, RST_PIN);
@@ -50,13 +51,13 @@ volatile bool getaranTerdeteksi = false;
 WiFiClientSecure client;
 
 // Function declarations
-void connectWiFi();
+void setupWiFi();
 void ukurjarak();
 void SensorGetar();
 void ReadRFID();
 void RefreshSistem();
 void StatusBarang(String status);
-void sendUidToDatabase(String uid, String status);
+void sendUidToDatabase(String uid);
 void ControlSolenoid(String uid);
 bool checkAuthorization(String uid);
 void logSolenoidStatus(String uid, String time, String status);
@@ -69,7 +70,8 @@ void setup() {
 
     // Initialize pins
     pinMode(RELAY_PIN, OUTPUT);
-    digitalWrite(RELAY_PIN, HIGH);
+    digitalWrite(RELAY_PIN, LOW); // Pastikan solenoid terkunci saat startup
+
     pinMode(lock, OUTPUT);
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
@@ -83,8 +85,14 @@ void setup() {
     digitalWrite(LED_R, LOW);
     digitalWrite(LED_G, HIGH);
 
+    // Debugging status relay
+    Serial.println("System initialized. Solenoid is locked.");
+
     // Connect to Wi-Fi
-    connectWiFi();
+    setupWiFi();
+    WiFiClientSecure client;
+    client.setInsecure();  // Menonaktifkan verifikasi sertifikat SSL
+
 
     // Initialize SPI and RFID
     SPI.begin();
@@ -94,9 +102,9 @@ void setup() {
     mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_avg);
 
     if (!mfrc522.PCD_PerformSelfTest()) {
-    Serial.println("RFID self-test failed.");
+        Serial.println("RFID self-test failed.");
     } else {
-    Serial.println("RFID initialized successfully.");
+        Serial.println("RFID initialized successfully.");
     }
 
     // Configure time
@@ -106,27 +114,34 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(pinGetar), handleGetar, RISING);
 }
 
-
 void loop() {
-  ukurjarak();
-  SensorGetar();
-  ReadRFID();
-  RefreshSistem();
+    Serial.println("Relay State: " + String(digitalRead(RELAY_PIN)));
+    ukurjarak();
+    SensorGetar();
+    ReadRFID();
+    RefreshSistem();
 
-  delay(500);
+    delay(500);
 }
 
-// Function implementations
-void connectWiFi() {
-  Serial.print("Connecting to Wi-Fi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.print("Connected to Wi-Fi. IP Address: ");
-  Serial.println(WiFi.localIP());
+
+void setupWiFi() {
+    WiFiManager wifiManager;
+
+    // Debugging: Indicate WiFiManager start
+    Serial.println("Starting WiFiManager...");
+
+    // WiFiManager AutoConnect with fallback portal
+    if (!wifiManager.autoConnect("Sijaga", "sijaga123")) {
+        Serial.println("Failed to connect, restarting...");
+        delay(3000);
+        ESP.restart();
+    }
+
+    // Debugging: Indicate successful connection
+    Serial.println("Wi-Fi connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
 }
 
 void ukurjarak() {
@@ -137,13 +152,13 @@ void ukurjarak() {
     digitalWrite(TRIG_PIN, LOW);
 
     long duration = pulseIn(ECHO_PIN, HIGH);
-    int distance_cm = (duration / 2) / 29.1;
+    int distance_cm = (duration /2 ) / 29.1;
 
     Serial.print("Distance: ");
     Serial.print(distance_cm);
     Serial.println(" cm");
 
-    if (distance_cm < 30) {
+    if (distance_cm < 55) {
         digitalWrite(LED_R, HIGH);
         digitalWrite(LED_G, LOW);
         status = "ADA BARANG";
@@ -159,59 +174,59 @@ void ukurjarak() {
 }
 
 void SensorGetar() {
-  pulseDuration = pulseIn(pinGetar, HIGH);  // Mengukur durasi pulsa HIGH
+    pulseDuration = pulseIn(pinGetar, HIGH);  // Mengukur durasi pulsa HIGH
 
-  // Menentukan tingkat keparahan getaran berdasarkan durasi pulsa
-  // Fuzzy membership function untuk keanggotaan rendah, sedang, dan tinggi
+    // Menentukan tingkat keparahan getaran berdasarkan durasi pulsa
+    // Fuzzy membership function untuk keanggotaan rendah, sedang, dan tinggi
 
-  // Keanggotaan untuk "Rendah" (0 - 500 mikrodetik)
-  float membershipRendah = constrain(map(pulseDuration,0,900,1,0),0,1);  // Jika durasi pulsa <= 500us, tingkat rendah
+    // Keanggotaan untuk "Rendah" (0 - 500 mikrodetik)
+    float membershipRendah = constrain(map(pulseDuration,0,900,1,0),0,1);  // Jika durasi pulsa <= 500us, tingkat rendah
 
-  // Keanggotaan untuk "Sedang" (500 - 1000 mikrodetik)
-  float membershipSedang = constrain(map(pulseDuration,900, 1250, 0, 1), 0, 1);  // Jika durasi pulsa antara 500 - 1000us
+    // Keanggotaan untuk "Sedang" (500 - 1000 mikrodetik)
+    float membershipSedang = constrain(map(pulseDuration,900, 1250, 0, 1), 0, 1);  // Jika durasi pulsa antara 500 - 1000us
 
-  // Keanggotaan untuk "Tinggi" (1000 - 3000 mikrodetik)
-  float membershipTinggi = constrain(map(pulseDuration, 1250, 3000, 0, 1), 0, 1);  // Jika durasi pulsa >= 1000us, tingkat tinggi
+    // Keanggotaan untuk "Tinggi" (1000 - 3000 mikrodetik)
+    float membershipTinggi = constrain(map(pulseDuration, 1250, 3000, 0, 1), 0, 1);  // Jika durasi pulsa >= 1000us, tingkat tinggi
 
-  // Debugging untuk melihat hasil keanggotaan
-  Serial.print("Pulse Duration: ");
-  Serial.print(pulseDuration);
-  Serial.print(" | Rendah: ");
-  Serial.print(membershipRendah);
-  Serial.print(" | Sedang: ");
-  Serial.print(membershipSedang);
-  Serial.print(" | Tinggi: ");
-  Serial.println(membershipTinggi);
+    // Debugging untuk melihat hasil keanggotaan
+    Serial.print("Pulse Duration: ");
+    Serial.print(pulseDuration);
+    Serial.print(" | Rendah: ");
+    Serial.print(membershipRendah);
+    Serial.print(" | Sedang: ");
+    Serial.print(membershipSedang);
+    Serial.print(" | Tinggi: ");
+    Serial.println(membershipTinggi);
 
-  // Logika untuk mengendalikan buzzer berdasarkan membership fuzzy
-  if (membershipTinggi > 0.5) {
-    buzzerLevel = 1;  // Jika keanggotaan tinggi > 0.5, nyalakan buzzer
-  } else if (membershipSedang > 0.5) {
-    buzzerLevel = 1;  // Jika keanggotaan sedang > 0.5, nyalakan buzzer
-  } else {
-    buzzerLevel = 0;  // Jika keanggotaan rendah, matikan buzzer
-  }
-
-  // Mengontrol buzzer berdasarkan level
-  if (buzzerLevel == 1) {
-    Serial.println("Alat Bergetar (Buzzer Aktif)");
-
-    unsigned long startTime = millis(); // Catat waktu awal
-    while (millis() - startTime < 3000) { // Loop selama 3 detik
-        digitalWrite(pinBuzz, HIGH); // Nyalakan buzzer
-        delay(100);                  // Durasi suara aktif
-        digitalWrite(pinBuzz, LOW);  // Matikan buzzer
-        delay(100);                  // Durasi jeda sebelum aktif lagi
+    // Logika untuk mengendalikan buzzer berdasarkan membership fuzzy
+    if (membershipTinggi > 0.5) {
+        buzzerLevel = 1;  // Jika keanggotaan tinggi > 0.5, nyalakan buzzer
+    } else if (membershipSedang > 0.5) {
+        buzzerLevel = 1;  // Jika keanggotaan sedang > 0.5, nyalakan buzzer
+    } else {
+        buzzerLevel = 0;  // Jika keanggotaan rendah, matikan buzzer
     }
-} else {
-    digitalWrite(pinBuzz, LOW);       // Matikan buzzer jika tidak ada getaran tinggi
-}
+
+    // Mengontrol buzzer berdasarkan level
+    if (buzzerLevel == 1) {
+        Serial.println("Alat Bergetar (Buzzer Aktif)");
+
+        unsigned long startTime = millis(); // Catat waktu awal
+        while (millis() - startTime < 3000) { // Loop selama 3 detik
+            digitalWrite(pinBuzz, HIGH); // Nyalakan buzzer
+            delay(100);                  // Durasi suara aktif
+            digitalWrite(pinBuzz, LOW);  // Matikan buzzer
+            delay(100);                  // Durasi jeda sebelum aktif lagi
+        }
+    } else {
+        digitalWrite(pinBuzz, LOW);       // Matikan buzzer jika tidak ada getaran tinggi
+    }
 }
 
 void ReadRFID() {
-    uid = ""; // Clear previous UID string
+    uid = ""; // Bersihkan UID sebelumnya
 
-    // Check for new card
+    // Cek apakah ada kartu baru
     if (!mfrc522.PICC_IsNewCardPresent()) {
         return;
     }
@@ -220,7 +235,7 @@ void ReadRFID() {
         return;
     }
 
-    // Read UID of card
+    // Baca UID dari kartu
     for (byte i = 0; i < mfrc522.uid.size; i++) {
         uid += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
         uid += String(mfrc522.uid.uidByte[i], HEX);
@@ -228,46 +243,37 @@ void ReadRFID() {
     uid.toUpperCase();
     Serial.println("RFID Detected UID: " + uid);
 
-    // Perform authorization check
+    // Pastikan authorization berjalan benar
     bool isAuthorized = checkAuthorization(uid);
 
-    // Handle authorization result
     if (isAuthorized) {
         Serial.println("UID Match: Authorized!");
 
-        // Log successful access to database
-        String currentTime = getFormattedTime();
-        logSolenoidStatus(uid, currentTime, "Access Granted");
-
-        // Control solenoid lock
+        // Kontrol solenoid (ubah status kunci)
         ControlSolenoid(uid);
 
-        // Send UID to database with status
-        sendUidToDatabase(uid, "Authorized");
+        // Kirim UID ke database
+        sendUidToDatabase(uid);
 
-        // Kirim status barang hanya jika RFID terautentikasi
+        // Kirim status barang
         StatusBarang(status);
-
     } else {
         Serial.println("UID Not Found: Access Denied.");
 
-        // Log failed access attempt to database
-        String currentTime = getFormattedTime();
-        logSolenoidStatus(uid, currentTime, "Access Denied");
-
-        // Activate buzzer for denied access
+        // Nyala buzzer jika akses ditolak
         digitalWrite(buzzer, HIGH);
         delay(1000);
         digitalWrite(buzzer, LOW);
 
-        // Send UID to database with status
-        sendUidToDatabase(uid, "Unauthorized");
+        // Log ke database
+        sendUidToDatabase(uid);
     }
 
-    // Halt communication with the card
+    // Reset komunikasi dengan kartu RFID
     mfrc522.PICC_HaltA();
     mfrc522.PCD_StopCrypto1();
 }
+
 
 void ControlSolenoid(String uid) {
     if (checkAuthorization(uid)) { // Cek apakah UID memiliki izin
@@ -276,12 +282,14 @@ void ControlSolenoid(String uid) {
         // Ubah status solenoid berdasarkan tap
         if (isFirstTap) {
             Serial.println("Unlocking solenoid...");
-            digitalWrite(RELAY_PIN, LOW); // Relay aktif (solenoid buka)
+            digitalWrite(RELAY_PIN, HIGH); // Relay aktif (solenoid buka)
             tap = "BUKA";
+            delay(1000); // Tambahkan delay untuk memastikan relay stabil
         } else {
             Serial.println("Locking solenoid...");
-            digitalWrite(RELAY_PIN, HIGH); // Relay nonaktif (solenoid kunci)
+            digitalWrite(RELAY_PIN, LOW); // Relay nonaktif (solenoid kunci)
             tap = "KUNCI";
+            delay(1000); // Tambahkan delay untuk memastikan relay stabil
         }
 
         // Perbarui log status solenoid
@@ -299,9 +307,6 @@ void ControlSolenoid(String uid) {
         digitalWrite(buzzer, LOW);
     }
 }
-
-
-
 
 bool checkAuthorization(String uid) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -374,32 +379,34 @@ void logSolenoidStatus(String uid, String time, String status) {
 }
 
 void RefreshSistem() {
-  if (digitalRead(button) == LOW) {
-    refresh = true;
-  } else if (refresh) {
-    Serial.println("System refreshed");
-    digitalWrite(lock, LOW);
-    digitalWrite(pinBuzz, LOW);
-    delay(1000);
-    ESP.restart();
-    refresh = false;
-  }
+    // Deteksi tombol ditekan (LOW aktif karena menggunakan INPUT_PULLUP)
+    if (digitalRead(button) == LOW) {
+        Serial.println("System is refreshing...");
+        delay(500); // Delay untuk menghindari bouncing tombol
+        ESP.restart(); // Restart ESP
+    }
 }
 
-void sendUidToDatabase(String uid, String status) {
+
+void sendUidToDatabase(String uid) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Wi-Fi disconnected, cannot send UID to database.");
         return;
     }
 
-    HTTPClient http;
-    String endpoint = "https://sijaga-be.vercel.app/card-id/create"; // Pastikan URL endpoint benar
-    http.begin(endpoint);
-    http.addHeader("Content-Type", "application/json"); // Header untuk JSON payload
+    if (uid.length() == 0) {
+        Serial.println("UID is empty, cannot send to database.");
+        return;
+    }
 
-    // JSON payload yang benar
-    String payload = "{\"card_id\":\"" + uid + "\",\"status\":\"" + status + "\"}";
-    Serial.println("Payload: " + payload); // Debugging: Print payload untuk memastikan kebenaran format
+    HTTPClient http;
+    String endpoint = "https://sijaga-railway-production.up.railway.app/card-id/create"; // Endpoint dari gambar
+    http.begin(endpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    // JSON payload
+    String payload = "{\"cardId\":\"" + uid + "\"}";
+    Serial.println("Payload: " + payload); // Debugging
 
     int httpResponseCode = http.POST(payload);
 
