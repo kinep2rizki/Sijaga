@@ -33,9 +33,9 @@ String PostLog = "/history/box-status"; //Endpoint post LogStatus
 String endpointStatusBarang = "/availability/post";
 const int httpsPort = 443;
 
-// Wi-Fi configuration
-#define WIFI_SSID "Celeng Balap-5G"
-#define WIFI_PASSWORD "telkomnihbos"
+// // Wi-Fi configuration
+// #define WIFI_SSID "A53s"
+// #define WIFI_PASSWORD "111111111"
 
 // RFID setup
 MFRC522 mfrc522(SS_PIN, RST_PIN);
@@ -81,7 +81,7 @@ void setup() {
     pinMode(button, INPUT_PULLUP);
     pinMode(pinGetar, INPUT);
     pinMode(pinBuzz, OUTPUT);
-    digitalWrite(lock, HIGH);
+    //digitalWrite(lock, HIGH);
     digitalWrite(LED_R, LOW);
     digitalWrite(LED_G, HIGH);
 
@@ -90,8 +90,8 @@ void setup() {
 
     // Connect to Wi-Fi
     setupWiFi();
-    WiFiClientSecure client;
-    client.setInsecure();  // Menonaktifkan verifikasi sertifikat SSL
+    // WiFiClientSecure client;
+    // client.setInsecure();  // Menonaktifkan verifikasi sertifikat SSL
 
 
     // Initialize SPI and RFID
@@ -116,17 +116,20 @@ void setup() {
 
 void loop() {
     Serial.println("Relay State: " + String(digitalRead(RELAY_PIN)));
+    ReadRFID();
     ukurjarak();
     SensorGetar();
-    ReadRFID();
+    
     RefreshSistem();
 
     delay(500);
 }
 
-
 void setupWiFi() {
     WiFiManager wifiManager;
+
+    // Set Debug Output
+    wifiManager.setDebugOutput(true);
 
     // Debugging: Indicate WiFiManager start
     Serial.println("Starting WiFiManager...");
@@ -226,54 +229,58 @@ void SensorGetar() {
 void ReadRFID() {
     uid = ""; // Bersihkan UID sebelumnya
 
-    // Cek apakah ada kartu baru
-    if (!mfrc522.PICC_IsNewCardPresent()) {
-        return;
+    // Periksa apakah ada kartu yang terdeteksi
+    if (mfrc522.PICC_IsNewCardPresent()) {
+        if (mfrc522.PICC_ReadCardSerial()) {
+            // Baca UID kartu RFID
+            byte cardUID[4];
+            for (byte i = 0; i < 4; i++) {
+                cardUID[i] = mfrc522.uid.uidByte[i];
+            }
+
+            Serial.print("Card UID: ");
+            for (byte i = 0; i < 4; i++) {
+                Serial.print(cardUID[i], HEX);
+                Serial.print(" ");
+                uid += String(cardUID[i] < 0x10 ? "0" : "");
+                uid += String(cardUID[i], HEX);
+            }
+            Serial.println();
+            uid.toUpperCase();
+            Serial.println("RFID Detected UID: " + uid);
+
+            // Pastikan authorization berjalan benar
+            bool isAuthorized = checkAuthorization(uid);
+
+            if (isAuthorized) {
+                Serial.println("UID Match: Authorized!");
+
+                // Kontrol solenoid (ubah status kunci)
+                ControlSolenoid(uid);
+
+                // Kirim UID ke database
+                sendUidToDatabase(uid);
+
+                // Kirim status barang
+                StatusBarang(status);
+            } else {
+                Serial.println("UID Not Found: Access Denied.");
+
+                // Nyala buzzer jika akses ditolak
+                digitalWrite(buzzer, HIGH);
+                delay(1000);
+                digitalWrite(buzzer, LOW);
+
+                // Log ke database
+                sendUidToDatabase(uid);
+            }
+
+            // Reset komunikasi dengan kartu RFID
+            mfrc522.PICC_HaltA();
+            mfrc522.PCD_StopCrypto1();
+        }
     }
-
-    if (!mfrc522.PICC_ReadCardSerial()) {
-        return;
-    }
-
-    // Baca UID dari kartu
-    for (byte i = 0; i < mfrc522.uid.size; i++) {
-        uid += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
-        uid += String(mfrc522.uid.uidByte[i], HEX);
-    }
-    uid.toUpperCase();
-    Serial.println("RFID Detected UID: " + uid);
-
-    // Pastikan authorization berjalan benar
-    bool isAuthorized = checkAuthorization(uid);
-
-    if (isAuthorized) {
-        Serial.println("UID Match: Authorized!");
-
-        // Kontrol solenoid (ubah status kunci)
-        ControlSolenoid(uid);
-
-        // Kirim UID ke database
-        sendUidToDatabase(uid);
-
-        // Kirim status barang
-        StatusBarang(status);
-    } else {
-        Serial.println("UID Not Found: Access Denied.");
-
-        // Nyala buzzer jika akses ditolak
-        digitalWrite(buzzer, HIGH);
-        delay(1000);
-        digitalWrite(buzzer, LOW);
-
-        // Log ke database
-        sendUidToDatabase(uid);
-    }
-
-    // Reset komunikasi dengan kartu RFID
-    mfrc522.PICC_HaltA();
-    mfrc522.PCD_StopCrypto1();
 }
-
 
 void ControlSolenoid(String uid) {
     if (checkAuthorization(uid)) { // Cek apakah UID memiliki izin
@@ -284,13 +291,17 @@ void ControlSolenoid(String uid) {
             Serial.println("Unlocking solenoid...");
             digitalWrite(RELAY_PIN, HIGH); // Relay aktif (solenoid buka)
             tap = "BUKA";
-            delay(1000); // Tambahkan delay untuk memastikan relay stabil
         } else {
             Serial.println("Locking solenoid...");
             digitalWrite(RELAY_PIN, LOW); // Relay nonaktif (solenoid kunci)
             tap = "KUNCI";
-            delay(1000); // Tambahkan delay untuk memastikan relay stabil
         }
+
+        delay(1000); // Tambahkan delay kecil untuk memastikan relay stabil
+
+        // Reset pembaca RFID agar siap membaca kartu berikutnya
+        mfrc522.PICC_HaltA();
+        mfrc522.PCD_StopCrypto1();
 
         // Perbarui log status solenoid
         String currentTime = getFormattedTime();
@@ -299,13 +310,20 @@ void ControlSolenoid(String uid) {
         // Periksa status barang menggunakan ultrasonik
         ukurjarak();
 
-        isFirstTap = !isFirstTap; // Ubah status tap
+        // Ubah status tap
+        isFirstTap = !isFirstTap;
     } else {
         Serial.println("Access Denied: Unauthorized UID");
         digitalWrite(buzzer, HIGH); // Buzzer menyala untuk akses ditolak
         delay(1000);
         digitalWrite(buzzer, LOW);
+
+        // Reset pembaca RFID agar siap membaca kartu berikutnya
+        mfrc522.PICC_HaltA();
+        mfrc522.PCD_StopCrypto1();
     }
+
+    return;
 }
 
 bool checkAuthorization(String uid) {
@@ -344,7 +362,6 @@ bool checkAuthorization(String uid) {
     http.end();
     return false;  // Default: Unauthorized jika tidak ada UID cocok
 }
-
 
 void logSolenoidStatus(String uid, String time, String status) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -387,7 +404,6 @@ void RefreshSistem() {
     }
 }
 
-
 void sendUidToDatabase(String uid) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Wi-Fi disconnected, cannot send UID to database.");
@@ -422,19 +438,19 @@ void sendUidToDatabase(String uid) {
 }
 
 String getFormattedDate() {
-  time_t now = time(nullptr);
-  struct tm* timeinfo = localtime(&now);
-  char dateStr[11];
-  strftime(dateStr, sizeof(dateStr), "%Y-%m-%d", timeinfo);
-  return String(dateStr);
+    time_t now = time(nullptr);
+    struct tm* timeinfo = localtime(&now);
+    char dateStr[11];
+    strftime(dateStr, sizeof(dateStr), "%Y-%m-%d", timeinfo);
+    return String(dateStr);
 }
 
 String getFormattedTime() {
-  time_t now = time(nullptr);
-  struct tm* timeinfo = localtime(&now);
-  char timeStr[20];
-  strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", timeinfo);
-  return String(timeStr);
+    time_t now = time(nullptr);
+    struct tm* timeinfo = localtime(&now);
+    char timeStr[20];
+    strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", timeinfo);
+    return String(timeStr);
 }
 
 void StatusBarang(String status) {
