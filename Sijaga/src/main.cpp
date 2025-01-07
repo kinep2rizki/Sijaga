@@ -31,6 +31,7 @@ String API_URL = "https://sijaga-railway-production.up.railway.app"; //link dari
 String PostUID = "/card-id/create"; //Endpoint Post UID
 String PostLog = "/history/box-status"; //Endpoint post LogStatus
 String endpointStatusBarang = "/availability/post";
+String UsageHistory = "/history/add";
 const int httpsPort = 443;
 
 // // Wi-Fi configuration
@@ -61,6 +62,7 @@ void sendUidToDatabase(String uid);
 void ControlSolenoid(String uid);
 bool checkAuthorization(String uid);
 void logSolenoidStatus(String uid, String time, String status);
+void historypemakaian(String cardId, String status, String availStatus);
 String getFormattedTime();
 void IRAM_ATTR handleGetar();
 
@@ -127,10 +129,8 @@ void loop() {
 
 void setupWiFi() {
     WiFiManager wifiManager;
-
     // Set Debug Output
     wifiManager.setDebugOutput(true);
-
     // Debugging: Indicate WiFiManager start
     Serial.println("Starting WiFiManager...");
 
@@ -227,12 +227,12 @@ void SensorGetar() {
 }
 
 void ReadRFID() {
-    uid = ""; // Bersihkan UID sebelumnya
+    uid = ""; // Clear previous UID
 
-    // Periksa apakah ada kartu yang terdeteksi
+    // Check if a card is present
     if (mfrc522.PICC_IsNewCardPresent()) {
         if (mfrc522.PICC_ReadCardSerial()) {
-            // Baca UID kartu RFID
+            // Read the UID of the RFID card
             byte cardUID[4];
             for (byte i = 0; i < 4; i++) {
                 cardUID[i] = mfrc522.uid.uidByte[i];
@@ -249,33 +249,43 @@ void ReadRFID() {
             uid.toUpperCase();
             Serial.println("RFID Detected UID: " + uid);
 
-            // Pastikan authorization berjalan benar
+            // Ensure UID is not empty
+            if (uid.length() == 0) {
+                Serial.println("UID is empty, cannot proceed.");
+                return;
+            }
+
+            // Check authorization
             bool isAuthorized = checkAuthorization(uid);
 
             if (isAuthorized) {
                 Serial.println("UID Match: Authorized!");
 
-                // Kontrol solenoid (ubah status kunci)
+                // Control solenoid (change lock status)
                 ControlSolenoid(uid);
 
-                // Kirim UID ke database
+                // Send UID to database
                 sendUidToDatabase(uid);
 
-                // Kirim status barang
+                // Send item status
                 StatusBarang(status);
+
+                // Determine availability status
+                String availStatus = (status == "ADA BARANG") ? "Available" : "Not Available";
+                historypemakaian(uid, status, availStatus); // Send history after successful tap
             } else {
                 Serial.println("UID Not Found: Access Denied.");
 
-                // Nyala buzzer jika akses ditolak
+                // Activate buzzer if access is denied
                 digitalWrite(buzzer, HIGH);
                 delay(1000);
                 digitalWrite(buzzer, LOW);
 
-                // Log ke database
+                // Log to database
                 sendUidToDatabase(uid);
             }
 
-            // Reset komunikasi dengan kartu RFID
+            // Reset communication with the RFID card
             mfrc522.PICC_HaltA();
             mfrc522.PCD_StopCrypto1();
         }
@@ -291,6 +301,12 @@ void ControlSolenoid(String uid) {
             Serial.println("Unlocking solenoid...");
             digitalWrite(RELAY_PIN, HIGH); // Relay aktif (solenoid buka)
             tap = "BUKA";
+
+            // Tambahkan delay 3 detik sebelum kembali ke state default (terkunci)
+            delay(3000);
+            Serial.println("(default state)...");
+            digitalWrite(RELAY_PIN, LOW); // Relay nonaktif (solenoid kunci)
+            tap = "KUNCI";
         } else {
             Serial.println("Locking solenoid...");
             digitalWrite(RELAY_PIN, LOW); // Relay nonaktif (solenoid kunci)
@@ -325,6 +341,7 @@ void ControlSolenoid(String uid) {
 
     return;
 }
+
 
 bool checkAuthorization(String uid) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -485,6 +502,48 @@ void StatusBarang(String status) {
     }
 
     http.end();
+}
+
+void historypemakaian(String cardId, String status, String availStatus) {
+    // Membentuk payload JSON
+    String payload = "{";
+    payload += "\"card_id\":\"" + cardId + "\",";
+    payload += "\"status\":\"" + status + "\",";
+    payload += "\"availStatus\":\"" + availStatus + "\""; // Include availStatus
+    payload += "}";
+
+    // Menampilkan payload ke Serial Monitor (untuk debugging)
+    Serial.println("Payload to send:");
+    Serial.println(payload);
+
+    // Membuat koneksi HTTP dan mengirimkan payload ke server
+    if (WiFi.status() == WL_CONNECTED) { // Periksa koneksi Wi-Fi
+        HTTPClient http;
+
+        // URL tujuan (ganti dengan URL endpoint Anda)
+        String url = API_URL + UsageHistory; // Update with your actual endpoint
+        http.begin(url); // Inisialisasi HTTPClient dengan URL
+        http.addHeader("Content-Type", "application/json"); // Tambahkan header untuk JSON
+
+        // Kirim payload menggunakan metode POST
+        int httpResponseCode = http.POST(payload);
+
+        // Menampilkan respons dari server
+        if (httpResponseCode > 0) {
+            Serial.print("HTTP Response code: ");
+            Serial.println(httpResponseCode);
+            String response = http.getString();
+            Serial.println("Server response:");
+            Serial.println(response);
+        } else {
+            Serial.print("Error on sending POST: ");
+            Serial.println(httpResponseCode);
+        }
+
+        http.end(); // Mengakhiri koneksi HTTP
+    } else {
+        Serial.println("WiFi Disconnected. Cannot send data.");
+    }
 }
 
 void IRAM_ATTR handleGetar() {
