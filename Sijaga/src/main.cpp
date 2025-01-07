@@ -34,9 +34,8 @@ String endpointStatusBarang = "/availability/post";
 String UsageHistory = "/history/add";
 const int httpsPort = 443;
 
-// // Wi-Fi configuration
-// #define WIFI_SSID "A53s"
-// #define WIFI_PASSWORD "111111111"
+//status solenoid
+String solenoidStatus = "KUNCI";
 
 // RFID setup
 MFRC522 mfrc522(SS_PIN, RST_PIN);
@@ -62,7 +61,7 @@ void sendUidToDatabase(String uid);
 void ControlSolenoid(String uid);
 bool checkAuthorization(String uid);
 void logSolenoidStatus(String uid, String time, String status);
-void historypemakaian(String cardId, String status, String availStatus);
+void historypemakaian(String cardId, String status, String solenoidStatus);
 String getFormattedTime();
 void IRAM_ATTR handleGetar();
 
@@ -83,7 +82,7 @@ void setup() {
     pinMode(button, INPUT_PULLUP);
     pinMode(pinGetar, INPUT);
     pinMode(pinBuzz, OUTPUT);
-    //digitalWrite(lock, HIGH);
+    digitalWrite(lock, HIGH);
     digitalWrite(LED_R, LOW);
     digitalWrite(LED_G, HIGH);
 
@@ -122,6 +121,10 @@ void loop() {
     ukurjarak();
     SensorGetar();
     
+    // Reset pembaca RFID agar siap membaca kartu berikutnya
+    mfrc522.PICC_HaltA();
+    mfrc522.PCD_StopCrypto1();
+
     RefreshSistem();
 
     delay(500);
@@ -231,6 +234,7 @@ void ReadRFID() {
 
     // Check if a card is present
     if (mfrc522.PICC_IsNewCardPresent()) {
+        Serial.println("Fungsi ini terpanggil");
         if (mfrc522.PICC_ReadCardSerial()) {
             // Read the UID of the RFID card
             byte cardUID[4];
@@ -271,8 +275,8 @@ void ReadRFID() {
                 StatusBarang(status);
 
                 // Determine availability status
-                String availStatus = (status == "ADA BARANG") ? "Available" : "Not Available";
-                historypemakaian(uid, status, availStatus); // Send history after successful tap
+                //String availStatus = (status == "ADA BARANG") ? "Available" : "Not Available";
+                historypemakaian(uid, status, solenoidStatus); // Send history after successful tap
             } else {
                 Serial.println("UID Not Found: Access Denied.");
 
@@ -284,12 +288,11 @@ void ReadRFID() {
                 // Log to database
                 sendUidToDatabase(uid);
             }
-
-            // Reset communication with the RFID card
-            mfrc522.PICC_HaltA();
-            mfrc522.PCD_StopCrypto1();
         }
-    }
+    }            
+    // Reset communication with the RFID card
+    mfrc522.PICC_HaltA();
+    mfrc522.PCD_StopCrypto1();
 }
 
 void ControlSolenoid(String uid) {
@@ -299,25 +302,21 @@ void ControlSolenoid(String uid) {
         // Ubah status solenoid berdasarkan tap
         if (isFirstTap) {
             Serial.println("Unlocking solenoid...");
-            digitalWrite(RELAY_PIN, HIGH); // Relay aktif (solenoid buka)
-            tap = "BUKA";
-
-            // Tambahkan delay 3 detik sebelum kembali ke state default (terkunci)
-            delay(3000);
-            Serial.println("(default state)...");
-            digitalWrite(RELAY_PIN, LOW); // Relay nonaktif (solenoid kunci)
-            tap = "KUNCI";
+            digitalWrite(RELAY_PIN, LOW); // Relay aktif (solenoid buka)
+            tap = "ACTIVE";
         } else {
             Serial.println("Locking solenoid...");
-            digitalWrite(RELAY_PIN, LOW); // Relay nonaktif (solenoid kunci)
-            tap = "KUNCI";
+            digitalWrite(RELAY_PIN, HIGH); // Relay nonaktif (solenoid kunci)
+            tap = "INACTIVE";
         }
 
-        delay(1000); // Tambahkan delay kecil untuk memastikan relay stabil
+        // Perbarui status solenoid global
+        solenoidStatus = tap;
 
-        // Reset pembaca RFID agar siap membaca kartu berikutnya
-        mfrc522.PICC_HaltA();
-        mfrc522.PCD_StopCrypto1();
+        // Debugging
+        Serial.println("Solenoid Status: " + solenoidStatus);
+
+        delay(3000); // Tambahkan delay untuk memastikan stabilitas relay
 
         // Perbarui log status solenoid
         String currentTime = getFormattedTime();
@@ -335,8 +334,8 @@ void ControlSolenoid(String uid) {
         digitalWrite(buzzer, LOW);
 
         // Reset pembaca RFID agar siap membaca kartu berikutnya
-        mfrc522.PICC_HaltA();
-        mfrc522.PCD_StopCrypto1();
+        // mfrc522.PICC_HaltA();
+        // mfrc522.PCD_StopCrypto1();
     }
 
     return;
@@ -504,12 +503,12 @@ void StatusBarang(String status) {
     http.end();
 }
 
-void historypemakaian(String cardId, String status, String availStatus) {
+void historypemakaian(String cardId, String status, String solenoidStatus) {
     // Membentuk payload JSON
     String payload = "{";
-    payload += "\"card_id\":\"" + cardId + "\",";
-    payload += "\"status\":\"" + status + "\",";
-    payload += "\"availStatus\":\"" + availStatus + "\""; // Include availStatus
+    payload += "\"card_id\":\"" + cardId + "\","; // ID kartu RFID
+    payload += "\"status\":\"" + solenoidStatus + "\",";  // Status penggunaan
+    payload += "\"availStatus\":\"" + status + "\""; // Status solenoid
     payload += "}";
 
     // Menampilkan payload ke Serial Monitor (untuk debugging)
