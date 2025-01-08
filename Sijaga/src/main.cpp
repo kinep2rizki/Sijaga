@@ -12,7 +12,7 @@ const int lock = 21;
 const int buzzer = 32;
 const int LED_R = 12;
 const int LED_G = 14;
-const int button = 33;
+//const int button = 33;
 const int pinGetar = 15;
 const int pinBuzz = 32;
 
@@ -27,11 +27,11 @@ unsigned long pulseDuration = 0;  // Durasi pulsa yang diterima dari sensor
 int buzzerLevel = 0;
 
 //Define database & endpoint
-String API_URL = "https://sijaga-railway-production.up.railway.app"; //link dari api (url)
-String PostUID = "/card-id/create"; //Endpoint Post UID
-String PostLog = "/history/box-status"; //Endpoint post LogStatus
-String endpointStatusBarang = "/availability/post";
-String UsageHistory = "/history/add";
+String API_URL = ""; //link dari api (url)
+String PostUID = ""; //Endpoint Post UID
+String PostLog = ""; //Endpoint post LogStatus
+String endpointStatusBarang = ""; //endpoint availability status
+String UsageHistory = ""; //endpoint usage history
 const int httpsPort = 443;
 
 //status solenoid
@@ -55,7 +55,6 @@ void setupWiFi();
 void ukurjarak();
 void SensorGetar();
 void ReadRFID();
-void RefreshSistem();
 void StatusBarang(String status);
 void sendUidToDatabase(String uid);
 void ControlSolenoid(String uid);
@@ -79,7 +78,7 @@ void setup() {
     pinMode(LED_R, OUTPUT);
     pinMode(LED_G, OUTPUT);
     pinMode(buzzer, OUTPUT);
-    pinMode(button, INPUT_PULLUP);
+    // pinMode(button, INPUT_PULLUP);
     pinMode(pinGetar, INPUT);
     pinMode(pinBuzz, OUTPUT);
     digitalWrite(lock, HIGH);
@@ -125,7 +124,7 @@ void loop() {
     mfrc522.PICC_HaltA();
     mfrc522.PCD_StopCrypto1();
 
-    RefreshSistem();
+    //RefreshSistem();
 
     delay(500);
 }
@@ -353,14 +352,14 @@ bool checkAuthorization(String uid) {
     http.begin(query);
 
     // Debugging log sebelum GET request
-    Serial.println("GET Request URL: " + query);
+    //Serial.println("GET Request URL: " + query);
 
     int httpResponseCode = http.GET();
 
     if (httpResponseCode > 0) {
         String payload = http.getString();
-        Serial.println("GET Response:");
-        Serial.println(payload);
+        // Serial.println("GET Response:");
+        // Serial.println(payload);
 
         // Validasi jika payload berisi UID yang sesuai
         if (payload.indexOf(uid) > -1) {  // Cari UID dalam respons
@@ -409,15 +408,6 @@ void logSolenoidStatus(String uid, String time, String status) {
     }
 
     http.end();
-}
-
-void RefreshSistem() {
-    // Deteksi tombol ditekan (LOW aktif karena menggunakan INPUT_PULLUP)
-    if (digitalRead(button) == LOW) {
-        Serial.println("System is refreshing...");
-        delay(500); // Delay untuk menghindari bouncing tombol
-        ESP.restart(); // Restart ESP
-    }
 }
 
 void sendUidToDatabase(String uid) {
